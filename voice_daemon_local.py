@@ -6,6 +6,7 @@
 #     "pywhispercpp",
 #     "pystray",
 #     "pillow",
+#     "pyperclip",
 # ]
 # ///
 
@@ -28,6 +29,7 @@ import select
 from pathlib import Path
 from pywhispercpp.model import Model
 import pystray
+import pyperclip
 from PIL import Image, ImageDraw
 
 # Configuration
@@ -302,16 +304,22 @@ def main():
                                 
                                 if prompt:
                                     try:
-                                        # Copy to clipboard using wl-copy (Wayland)
-                                        subprocess.run(
-                                            ["wl-copy"],
-                                            input=prompt.encode("utf-8"),
-                                            check=True
-                                        )
+                                        # Copy to clipboard
+                                        pyperclip.copy(prompt)
                                         print(f"📋 Copied to clipboard: {transcription}")
                                         
                                     except Exception as e:
                                         print(f"🖶️  Clipboard error: {e}")
+                                        # Fallback to wl-copy if pyperclip fails (though pyperclip usually handles this)
+                                        try:
+                                            subprocess.run(
+                                                ["wl-copy"],
+                                                input=prompt.encode("utf-8"),
+                                                check=True
+                                            )
+                                            print(f"📋 Copied to clipboard (via wl-copy): {transcription}")
+                                        except Exception as e2:
+                                            print(f"🖶️  wl-copy error: {e2}")
                             else:
                                 print("❌ No transcription produced")
                         else:
