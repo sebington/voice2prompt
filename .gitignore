@@ -1,2 +1,4 @@
 whisper.cpp
+test_env
+__pycache__
 *.html

@@ -4,6 +4,8 @@
 # dependencies = [
 #     "numpy",
 #     "pywhispercpp",
+#     "pystray",
+#     "pillow",
 # ]
 # ///
 
@@ -25,6 +27,8 @@ import time
 import select
 from pathlib import Path
 from pywhispercpp.model import Model
+import pystray
+from PIL import Image, ImageDraw
 
 # Configuration
 CHANNELS = 1
@@ -39,6 +43,40 @@ listening = False
 recording_process = None
 whisper_model = None
 last_signal_time = 0
+
+# System tray variables
+tray_icon = None
+icon_thread = None
+
+def create_image(color):
+    """Generate an image with a colored square for system tray"""
+    width = 64
+    height = 64
+
+    image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    
+    # If color is None, return just the transparent background
+    if color is None:
+        return image
+        
+    dc = ImageDraw.Draw(image)
+    
+    # Draw a square (same size/location for all colors)
+    dc.rectangle((8, 8, 56, 56), fill=color)
+
+    return image
+
+def update_tray_icon(color):
+    """Update the system tray icon color"""
+    global tray_icon
+    if tray_icon:
+        tray_icon.icon = create_image(color)
+
+def run_tray_icon():
+    """Run the system tray icon in a separate thread"""
+    global tray_icon
+    tray_icon = pystray.Icon("voice_daemon", create_image("blue"), "Voice Daemon")
+    tray_icon.run()
 
 def notify(msg):
     """Send desktop notification (Disabled)"""
@@ -64,11 +102,13 @@ def toggle_listening(signum, frame):
         listening = True
         print(f"🎤 Listening started via signal (Time: {time.ctime()})")
         notify("🎤 Listening…")
+        update_tray_icon("red")  # Change to red when recording
     else:
         # Stopping listening
         listening = False
         print(f"⏹️  Listening stopped via signal (Time: {time.ctime()})")
         notify("⏹️  Finalizing…")
+        update_tray_icon("blue")  # Change back to blue when idle
 
 def record_audio_segment(filename):
     """Record a segment of audio using arecord"""
@@ -146,7 +186,12 @@ def transcribe_audio(audio_file):
         return None
 
 def main():
-    global listening, recording_process, whisper_model, last_signal_time
+    global listening, recording_process, whisper_model, last_signal_time, icon_thread
+    
+    # Start the system tray icon in a separate thread
+    icon_thread = threading.Thread(target=run_tray_icon, daemon=True)
+    icon_thread.start()
+    time.sleep(0.5)  # Give the icon thread time to start
     
     # Check if arecord is available
     try:
@@ -231,6 +276,9 @@ def main():
                         else:
                             print("⚠️  No audio recorded")
                         
+                        # Change back to blue after processing is complete
+                        update_tray_icon("blue")
+                        
                         # Clean up for next recording
                         recording_process = None
                     else:
@@ -248,6 +296,14 @@ def main():
     if recording_process and recording_process.poll() is None:
         recording_process.terminate()
         recording_process.wait()
+    
+    # Stop the system tray icon
+    if tray_icon:
+        tray_icon.stop()
+    
+    # Wait for the icon thread to finish
+    if icon_thread and icon_thread.is_alive():
+        icon_thread.join(timeout=1.0)
 
 if __name__ == "__main__":
     main()
