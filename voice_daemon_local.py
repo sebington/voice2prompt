@@ -47,6 +47,8 @@ last_signal_time = 0
 # System tray variables
 tray_icon = None
 icon_thread = None
+blinking = False
+blinking_thread = None
 
 def create_image(color):
     """Generate an image with a colored square for system tray"""
@@ -78,6 +80,45 @@ def run_tray_icon():
     tray_icon = pystray.Icon("voice_daemon", create_image("blue"), "Voice Daemon")
     tray_icon.run()
 
+def blink_red_icon():
+    """Blink the red icon in a separate thread"""
+    global blinking, tray_icon
+    
+    while blinking:
+        if tray_icon:
+            # Show red
+            tray_icon.icon = create_image("red")
+            time.sleep(0.3)
+            
+            if not blinking:
+                break
+                
+            # Show transparent (off)
+            tray_icon.icon = create_image(None)
+            time.sleep(0.3)
+        else:
+            break
+
+def start_blinking():
+    """Start the red icon blinking"""
+    global blinking, blinking_thread
+    
+    if not blinking:
+        blinking = True
+        blinking_thread = threading.Thread(target=blink_red_icon, daemon=True)
+        blinking_thread.start()
+
+def stop_blinking():
+    """Stop the red icon blinking and return to blue"""
+    global blinking, blinking_thread
+    
+    if blinking:
+        blinking = False
+        if blinking_thread and blinking_thread.is_alive():
+            blinking_thread.join(timeout=0.5)
+        # Ensure we return to blue
+        update_tray_icon("blue")
+
 def notify(msg):
     """Send desktop notification (Disabled)"""
     # Desktop notifications are disabled as requested
@@ -102,13 +143,13 @@ def toggle_listening(signum, frame):
         listening = True
         print(f"🎤 Listening started via signal (Time: {time.ctime()})")
         notify("🎤 Listening…")
-        update_tray_icon("red")  # Change to red when recording
+        start_blinking()  # Start blinking red when recording
     else:
         # Stopping listening
         listening = False
         print(f"⏹️  Listening stopped via signal (Time: {time.ctime()})")
         notify("⏹️  Finalizing…")
-        update_tray_icon("blue")  # Change back to blue when idle
+        stop_blinking()  # Stop blinking and return to blue
 
 def record_audio_segment(filename):
     """Record a segment of audio using arecord"""
@@ -277,7 +318,7 @@ def main():
                             print("⚠️  No audio recorded")
                         
                         # Change back to blue after processing is complete
-                        update_tray_icon("blue")
+                        stop_blinking()  # Ensure blinking stops and we return to blue
                         
                         # Clean up for next recording
                         recording_process = None
@@ -296,6 +337,9 @@ def main():
     if recording_process and recording_process.poll() is None:
         recording_process.terminate()
         recording_process.wait()
+    
+    # Stop any blinking
+    stop_blinking()
     
     # Stop the system tray icon
     if tray_icon:
