@@ -77,7 +77,7 @@ def update_tray_icon(color):
 def run_tray_icon():
     """Run the system tray icon in a separate thread"""
     global tray_icon
-    tray_icon = pystray.Icon("voice_daemon", create_image("blue"), "Voice Daemon")
+    tray_icon = pystray.Icon("voice_daemon", create_image("#2ECC71"), "Voice Daemon")
     tray_icon.run()
 
 def blink_red_icon():
@@ -87,7 +87,7 @@ def blink_red_icon():
     while blinking:
         if tray_icon:
             # Show red
-            tray_icon.icon = create_image("red")
+            tray_icon.icon = create_image("#FF4500")
             time.sleep(0.3)
             
             if not blinking:
@@ -117,7 +117,7 @@ def stop_blinking():
         if blinking_thread and blinking_thread.is_alive():
             blinking_thread.join(timeout=0.5)
         # Ensure we return to blue
-        update_tray_icon("blue")
+        update_tray_icon("#2ECC71")
 
 def notify(msg):
     """Send desktop notification (Disabled)"""
