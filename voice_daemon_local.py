@@ -64,7 +64,7 @@ def create_image(color):
     dc = ImageDraw.Draw(image)
     
     # Draw a square (same size/location for all colors)
-    dc.rectangle((8, 8, 56, 56), fill=color)
+    dc.rectangle((0, 0, 64, 64), fill=color)
 
     return image
 
