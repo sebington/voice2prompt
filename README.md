@@ -1,6 +1,6 @@
 # Voice Prompt Daemon 🎤
 
-A background voice transcription daemon that listens for voice input and copies transcribed text to your clipboard using local Whisper models. Perfect for hands-free text input and voice-to-text workflows.
+A basic background voice transcription daemon running on Linux that listens for voice input and copies transcribed text to your clipboard using local Whisper models.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
@@ -44,49 +44,33 @@ uv run voice_daemon_local.py
 **Note**: The first run will automatically download the required Whisper model (~147MB for base.en). Subsequent runs will use the cached model.
 
 3. **(Optional) Manual model management**:
-```bash
-# If you prefer to manage models manually
-# Models should be placed in ./whisper.cpp/models/
-# Visit: https://github.com/ggerganov/whisper.cpp for more models
-```
 
-4. **Control the daemon**:
-```bash
-# Toggle listening state (or start if not running)
-./voice_daemon_control.sh
+If you prefer to manage models manually
+Models should be placed in ./whisper.cpp/models/
+Visit: https://github.com/ggerganov/whisper.cpp for more models
 
-# Or send signal manually
-pkill -SIGUSR1 -f voice_daemon_local.py
+4. **Setup**:
+
+```bash
+# Make the Bash script executable
+chmod +x ./voice_daemon_control.sh
 ```
+The create a keyboard shortcut pointing to ```./voice_daemon_control.sh```
 
 ## 📖 Usage
 
 ### Basic Operation
 
 1. **Start the daemon**: `uv run voice_daemon_local.py`
-2. **Toggle listening**: Use the control script or send SIGUSR1
+2. **Toggle listening**: Press your chosen shortcut
 3. **Speak**: When listening (red blinking icon), speak clearly
 4. **Get text**: Transcribed text is automatically copied to clipboard
 5. **Paste**: Paste the transcribed text anywhere (Ctrl+V)
 
 ### System Tray Indicators
 
-- 🟦 **Blue Square**: Daemon idle, not listening
-- 🔴 **Red Blinking**: Actively recording and listening
-- ⚫ **Transparent**: Between blinks when recording
-
-### Control Methods
-
-```bash
-# Method 1: Control script (recommended)
-./voice_daemon_control.sh
-
-# Method 2: Direct signal
-kill -SIGUSR1 $(pgrep -f voice_daemon_local.py)
-
-# Method 3: Keyboard shortcut (configure in your DE)
-# Bind the control script to a hotkey
-```
+- 🟩 **Green Square**: Daemon idle, not listening
+- 🟥 **Red Blinking Square**: Actively recording and transcribing
 
 ## 🛠️ Configuration
 
@@ -112,7 +96,6 @@ Available models (auto-downloaded):
 - `tiny.en` (~39MB) - Fastest, less accurate
 - `base.en` (~147MB) - Good balance (default)
 - `small.en` (~466MB) - More accurate
-- `medium.en` (~1.5GB) - Very accurate
 
 **Note**: Models are downloaded automatically on first run. You can also place models manually in `./whisper.cpp/models/` using the format `ggml-{model_name}.bin`.
 
@@ -184,60 +167,3 @@ wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin 
 sudo apt install wl-clipboard  # For Wayland
 sudo apt install xclip         # For X11
 ```
-
-**"Permission denied"**
-```bash
-# Ensure user has access to audio devices
-sudo usermod -a -G audio $USER
-# Log out and back in
-```
-
-### Debug Mode
-
-Add debug prints by modifying the script or run with verbose output:
-
-```bash
-# Run with additional logging
-python voice_daemon_local.py 2>&1 | tee daemon.log
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Areas for Improvement
-
-- [ ] Cross-platform audio support (macOS/Windows)
-- [ ] GUI configuration interface
-- [ ] Multiple language model support
-- [ ] Voice command detection
-- [ ] Audio level visualization
-- [ ] Custom hotkey configuration
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [ggerganov/whisper.cpp](https://github.com/ggerganov/whisper.cpp) - C++ implementation of Whisper
-- [OpenAI](https://openai.com/) - Whisper speech recognition model
-- [pystray](https://github.com/muellerberndt/pystray) - System tray icon library
-- [pyperclip](https://github.com/asweigart/pyperclip) - Cross-platform clipboard library
-
-## 📞 Support
-
-If you encounter issues or have questions:
-
-1. Check the [Troubleshooting](#-troubleshooting) section
-2. Review [REQUIREMENTS.md](REQUIREMENTS.md) for detailed setup
-3. Open an Issue on GitHub
-4. Join our discussions for community support
-
----
-
-**Made with ❤️ for hands-free computing**
