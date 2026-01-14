@@ -38,7 +38,8 @@ RATE = 16000  # whisper works best with 16kHz
 FORMAT = "S16_LE"  # 16-bit little endian
 ARECORD_CMD = ["arecord"]
 WHISPER_PATH = Path(__file__).parent / "whisper.cpp"
-WHISPER_MODEL = WHISPER_PATH / "models" / "ggml-base.en.bin"  # Default model path
+WHISPER_MODEL_NAME = "base.en"  # Model name for auto-download
+WHISPER_MODEL = WHISPER_PATH / "models" / "ggml-base.en.bin"  # Fallback local path
 
 audio_q = queue.Queue()
 listening = False
@@ -249,16 +250,23 @@ def main():
     
     # Initialize pywhispercpp
     try:
-        if not WHISPER_MODEL.exists():
-            print(f"Error: Model not found at {WHISPER_MODEL}")
-            print("Please download a whisper model (e.g., ggml-base.en.bin)")
-            sys.exit(1)
-        
-        whisper_model = Model(str(WHISPER_MODEL))
-        print(f"✅ Loaded whisper model: {WHISPER_MODEL.name}")
+        if WHISPER_MODEL.exists():
+            # Use local model if available
+            whisper_model = Model(str(WHISPER_MODEL))
+            print(f"✅ Loaded local whisper model: {WHISPER_MODEL.name}")
+        else:
+            # Auto-download model if not found locally
+            print(f"📥 Model not found locally, downloading {WHISPER_MODEL_NAME}...")
+            print("⏳ This may take a moment depending on your internet connection...")
+            whisper_model = Model(WHISPER_MODEL_NAME)
+            print(f"✅ Successfully downloaded and loaded whisper model: {WHISPER_MODEL_NAME}")
         
     except Exception as e:
-        print(f"Error initializing whisper: {e}")
+        print(f"❌ Error initializing whisper: {e}")
+        print("💡 Possible solutions:")
+        print("   - Check your internet connection")
+        print("   - Try manually downloading the model to ./whisper.cpp/models/")
+        print("   - Verify the model name is correct")
         sys.exit(1)
 
     # Set up the signal handler for toggling

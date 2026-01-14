@@ -1,4 +1,10 @@
-whisper.cpp
+# whisper.cpp directory (but allow specific models to be committed if desired)
+whisper.cpp/models/*.bin
+whisper.cpp/models/*.ggml
+
+# Test environment
 test_env
 __pycache__
+
+# Other files
 *.html
