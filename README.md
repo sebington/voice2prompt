@@ -1,6 +1,6 @@
 # Voice2Prompt
 
-A voice-to-text daemon that lets you dictate text anywhere by holding down Right Ctrl. Audio is transcribed using Whisper and automatically pasted into your active application.
+A voice-to-text app that lets you dictate text anywhere by holding down Right Ctrl. Audio is transcribed using Whisper and automatically pasted into your active application.
 
 ## Features
 
@@ -14,7 +14,7 @@ A voice-to-text daemon that lets you dictate text anywhere by holding down Right
 
 - Python 3.8+
 - [uv](https://github.com/astral-sh/uv) (Python package manager)
-- Linux with audio input device
+- Linux with audio input device (only tested on Ubuntu 25.10 so far)
 - sudo access (for keyboard listener)
 
 ## Installation
@@ -37,7 +37,7 @@ chmod +x start.sh
 
 ## Usage
 
-Run both components with the included script:
+Run the following script in a terminal:
 
 ```bash
 ./start.sh
