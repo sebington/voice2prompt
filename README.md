@@ -26,7 +26,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 2. Clone this repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/sebington/voice2prompt.git
 cd voice2prompt
 ```
 
