@@ -7,32 +7,38 @@
 #     "pystray",
 #     "pillow",
 #     "pyperclip",
+#     "sounddevice",
+#     "scipy",
 # ]
 # ///
 
 """
-Voice Prompt Daemon using pywhispercpp (Local Whisper)
-A background daemon that listens for voice input and copies transcribed text to clipboard
-Uses SIGUSR1 signal to toggle listening state
+Voice Prompt Daemon (User Component)
+Listens for audio commands via UDP (from key_listener), records, and transcribes.
 """
 
+import socket
+import select
 import queue
-import signal
 import subprocess
 import os
 import sys
 import tempfile
-import wave
 import threading
 import time
-import select
 from pathlib import Path
 from pywhispercpp.model import Model
 import pystray
 import pyperclip
+import sounddevice as sd
+import numpy as np
+from scipy.io.wavfile import write as write_wav
 from PIL import Image, ImageDraw
 
 # Configuration
+UDP_IP = "127.0.0.1"
+UDP_PORT = 5005
+CMD_PORT = 5006  # Port to send PASTE commands to key_listener
 CHANNELS = 1
 RATE = 16000  # whisper works best with 16kHz
 FORMAT = "S16_LE"  # 16-bit little endian
@@ -43,15 +49,13 @@ WHISPER_MODEL = WHISPER_PATH / "models" / "ggml-base.en.bin"  # Fallback local p
 
 audio_q = queue.Queue()
 listening = False
-recording_process = None
+recording_data = []
+recording_thread = None
 whisper_model = None
-last_signal_time = 0
 
 # System tray variables
 tray_icon = None
 icon_thread = None
-blinking = False
-blinking_thread = None
 
 def create_image(color):
     """Generate an image with a colored square for system tray"""
@@ -83,106 +87,41 @@ def run_tray_icon():
     tray_icon = pystray.Icon("voice_daemon", create_image("#2ECC71"), "Voice Daemon")
     tray_icon.run()
 
-def blink_red_icon():
-    """Blink the red icon in a separate thread"""
-    global blinking, tray_icon
-    
-    while blinking:
-        if tray_icon:
-            # Show red
-            tray_icon.icon = create_image("#FF4500")
-            time.sleep(0.3)
-            
-            if not blinking:
-                break
-                
-            # Show transparent (off)
-            tray_icon.icon = create_image(None)
-            time.sleep(0.3)
-        else:
-            break
-
-def start_blinking():
-    """Start the red icon blinking"""
-    global blinking, blinking_thread
-    
-    if not blinking:
-        blinking = True
-        blinking_thread = threading.Thread(target=blink_red_icon, daemon=True)
-        blinking_thread.start()
-
-def stop_blinking():
-    """Stop the red icon blinking and return to blue"""
-    global blinking, blinking_thread
-    
-    if blinking:
-        blinking = False
-        if blinking_thread and blinking_thread.is_alive():
-            blinking_thread.join(timeout=0.5)
-        # Ensure we return to blue
-        update_tray_icon("#2ECC71")
-
-def notify(msg):
-    """Send desktop notification (Disabled)"""
-    # Desktop notifications are disabled as requested
-    pass
-
-def toggle_listening(signum, frame):
-    """Toggle listening state via signal"""
-    global listening, recording_process, last_signal_time
-    
-    current_time = time.time()
-    time_diff = current_time - last_signal_time
-    
-    # Debounce: ignore signals that come too close together (1.0s)
-    if time_diff < 1.0:
-        print(f"⚠️  Ignoring signal (debounce active, diff: {time_diff:.2f}s)")
-        return
-        
-    last_signal_time = current_time
-    
-    if not listening:
-        # Starting to listen
-        listening = True
-        print(f"🎤 Listening started via signal (Time: {time.ctime()})")
-        notify("🎤 Listening…")
-        start_blinking()  # Start blinking red when recording
-    else:
-        # Stopping listening
-        listening = False
-        print(f"⏹️  Listening stopped via signal (Time: {time.ctime()})")
-        notify("⏹️  Finalizing…")
-        stop_blinking()  # Stop blinking and return to blue
-
-def record_audio_segment(filename):
-    """Record a segment of audio using arecord"""
-    global recording_process
-    
-    cmd = ARECORD_CMD + [
-        "-f", FORMAT,
-        "-c", str(CHANNELS),
-        "-r", str(RATE),
-        "-t", "wav",
-        filename
-    ]
-    
+def simulate_ctrl_v():
+    """Send PASTE command to the root key_listener"""
     try:
-        recording_process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        return True
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.sendto(b"PASTE", (UDP_IP, CMD_PORT))
+        print("Sent PASTE command to key_listener")
     except Exception as e:
-        print(f"❌ Error starting recording: {e}")
-        return False
+        print(f"Failed to send PASTE command: {e}")
 
-def stop_recording():
-    """Stop the current recording"""
-    global recording_process
-    if recording_process and recording_process.poll() is None:
-        recording_process.terminate()
-        recording_process.wait()
+def on_start_command():
+    """Start recording command received"""
+    global listening, recording_data
+    if not listening:
+        listening = True
+        recording_data = [] # Reset recording data
+        print("Recording...")
+        update_tray_icon("#FF0000")  # Red
+
+def on_stop_command():
+    """Stop recording command received"""
+    global listening
+    if listening:
+        listening = False
+        print("Processing...")
+        update_tray_icon("#2ECC71")  # Green
+
+def audio_callback(indata, frames, time, status):
+    """Callback for sounddevice input stream"""
+    if status:
+        print(f"Audio status: {status}")
+    
+    if listening:
+        recording_data.append(indata.copy())
+        if len(recording_data) % 10 == 0:
+            print(".", end="", flush=True)
 
 def normalize_prompt(text):
     """Format text as a prompt"""
@@ -193,15 +132,11 @@ def transcribe_audio(audio_file):
     try:
         # Check if file exists and has content
         if not os.path.exists(audio_file):
-            print(f"⚠️  Audio file not found: {audio_file}")
             return None
         
         file_size = os.path.getsize(audio_file)
         if file_size < 1000:  # Less than 1KB is probably empty
-            print(f"⚠️  Audio file seems too small: {file_size} bytes")
             return None
-        
-        print(f"🔄 Transcribing {audio_file} ({file_size} bytes)...")
         
         # Use pywhispercpp to transcribe
         segments = whisper_model.transcribe(str(audio_file))
@@ -215,147 +150,124 @@ def transcribe_audio(audio_file):
             
             transcription = ' '.join(transcription_parts) if transcription_parts else None
             
-            if transcription:
-                print(f"✅ Transcription complete")
-            else:
-                print("⚠️  No speech detected")
-                
             return transcription
         else:
-            print("⚠️  No speech detected")
             return None
             
     except Exception as e:
-        print(f"❌ Error during transcription: {e}")
+        print(f"Error during transcription: {e}")
         return None
 
 def main():
-    global listening, recording_process, whisper_model, last_signal_time, icon_thread
+    global listening, recording_data, whisper_model, icon_thread
     
+    # Check if running as root - WE SHOULD NOT BE ROOT
+    if os.geteuid() == 0:
+        print("Warning: Run as regular user, not root")
+
     # Start the system tray icon in a separate thread
     icon_thread = threading.Thread(target=run_tray_icon, daemon=True)
     icon_thread.start()
-    time.sleep(0.5)  # Give the icon thread time to start
-    
-    # Check if arecord is available
-    try:
-        subprocess.run(ARECORD_CMD + ["--help"], 
-                     capture_output=True, check=True)
-        print("✅ Using arecord for audio recording")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print("❌ Error: 'arecord' command not found")
-        print("Please install ALSA utilities:")
-        print("  sudo apt-get install alsa-utils  # Ubuntu/Debian")
-        sys.exit(1)
-    
+    time.sleep(0.5)
+
     # Initialize pywhispercpp
     try:
         if WHISPER_MODEL.exists():
-            # Use local model if available
-            whisper_model = Model(str(WHISPER_MODEL))
-            print(f"✅ Loaded local whisper model: {WHISPER_MODEL.name}")
+            # Redirect stderr to suppress whisper.cpp initialization logs
+            with open(os.devnull, 'w') as devnull:
+                old_stderr = sys.stderr
+                sys.stderr = devnull
+                try:
+                    whisper_model = Model(str(WHISPER_MODEL))
+                finally:
+                    sys.stderr = old_stderr
+            print("Model loaded")
         else:
             # Auto-download model if not found locally
-            print(f"📥 Model not found locally, downloading {WHISPER_MODEL_NAME}...")
-            print("⏳ This may take a moment depending on your internet connection...")
+            print("Downloading model...")
             whisper_model = Model(WHISPER_MODEL_NAME)
-            print(f"✅ Successfully downloaded and loaded whisper model: {WHISPER_MODEL_NAME}")
+            print("Model loaded")
         
     except Exception as e:
-        print(f"❌ Error initializing whisper: {e}")
-        print("💡 Possible solutions:")
-        print("   - Check your internet connection")
-        print("   - Try manually downloading the model to ./whisper.cpp/models/")
-        print("   - Verify the model name is correct")
+        print(f"Error: {e}")
+        print("Check internet connection or model path")
         sys.exit(1)
 
-    # Set up the signal handler for toggling
-    signal.signal(signal.SIGUSR1, toggle_listening)
+    # Setup UDP listener
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((UDP_IP, UDP_PORT))
+    sock.setblocking(False)
+    
+    print("Voice Prompt Daemon Ready")
+    print("   Hold Right Ctrl to record, release to transcribe & paste")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         recording_file = os.path.join(tmpdir, "recording.wav")
         
-        print("🚀 Voice Prompt Daemon Ready")
-        print("📋 Current state: NOT LISTENING (waiting for SIGUSR1)")
-        print("🎯 Send SIGUSR1 to start/stop listening")
+        # Open audio stream
+        # Try to use default device, blocksize=1024 for stability
+        try:
+            with sd.InputStream(samplerate=RATE, channels=CHANNELS, dtype='int16', 
+                                blocksize=1024, callback=audio_callback):
+                print("Audio ready")
+                
+                while True:
+                    try:
+                        # Check for UDP commands
+                        ready = select.select([sock], [], [], 0.05)
+                        if ready[0]:
+                            data, addr = sock.recvfrom(1024)
+                            cmd = data.decode().strip()
+                            if cmd == "START":
+                                on_start_command()
+                            elif cmd == "STOP":
+                                on_stop_command()
 
-        while True:
-            try:
-                if listening:
-                    # Start recording
-                    if not recording_process or recording_process.poll() is not None:
-                        print("🎤 Starting recording...")
-                        if record_audio_segment(recording_file):
-                            print("🔴 Recording in progress...")
-                        else:
-                            print("❌ Failed to start recording")
-                            listening = False
-                    
-                    # Check for signal to stop (non-blocking)
-                    # We use a small timeout to allow signal handling
-                    time.sleep(0.1)
-                    
-                else:
-                    # Not listening - check if we were recording
-                    if recording_process and recording_process.poll() is None:
-                        stop_recording()
-                        print("⏹️  Recording stopped")
-                        
-                        # Process the recorded audio
-                        if os.path.exists(recording_file) and os.path.getsize(recording_file) > 0:
-                            print(f"🎤 Processing recorded audio...")
+                        # Process recording if stopped
+                        if not listening and len(recording_data) > 0:
+                            # Concatenate all recorded chunks
+                            my_recording = np.concatenate(recording_data, axis=0)
+                            
+                            # Save to WAV file
+                            write_wav(recording_file, RATE, my_recording)
+                            
+                            # Reset buffer
+                            recording_data = []
+                            
+                            # Transcribe
                             transcription = transcribe_audio(recording_file)
                             
                             if transcription:
-                                #print(f"✅ Transcription successful: '{transcription}'")
                                 prompt = normalize_prompt(transcription)
-                                
                                 if prompt:
                                     try:
-                                        # Copy to clipboard
-                                        pyperclip.copy(prompt)
-                                        print(f"📋 Copied to clipboard: {transcription}")
+                                        prompt_with_space = prompt + " "
+                                        pyperclip.copy(prompt_with_space)
+                                        print(f"Transcribed: {transcription}")
                                         
+                                        time.sleep(0.1)
+                                        simulate_ctrl_v()
+                                            
                                     except Exception as e:
-                                        print(f"🖶️  Clipboard error: {e}")
-                                        # Fallback to wl-copy if pyperclip fails (though pyperclip usually handles this)
                                         try:
-                                            subprocess.run(
-                                                ["wl-copy"],
-                                                input=prompt.encode("utf-8"),
-                                                check=True
-                                            )
-                                            print(f"📋 Copied to clipboard (via wl-copy): {transcription}")
+                                            subprocess.run(["wl-copy"], input=(prompt + " ").encode("utf-8"), check=True)
+                                            print(f"Transcribed: {transcription}")
+                                            time.sleep(0.1)
+                                            simulate_ctrl_v()
                                         except Exception as e2:
-                                            print(f"🖶️  wl-copy error: {e2}")
-                            else:
-                                print("❌ No transcription produced")
-                        else:
-                            print("⚠️  No audio recorded")
+                                            print("Paste failed")
+                                
+                        time.sleep(0.01)
                         
-                        # Change back to blue after processing is complete
-                        stop_blinking()  # Ensure blinking stops and we return to blue
-                        
-                        # Clean up for next recording
-                        recording_process = None
-                    else:
-                        # Small sleep to prevent CPU overload when not listening
-                        time.sleep(0.1)
-                        
-            except KeyboardInterrupt:
-                print("\nShutting down daemon...")
-                break
-            except Exception as e:
-                print(f"Error: {e}")
-                continue
-
-    # Cleanup
-    if recording_process and recording_process.poll() is None:
-        recording_process.terminate()
-        recording_process.wait()
-    
-    # Stop any blinking
-    stop_blinking()
+                    except KeyboardInterrupt:
+                        print("\nShutting down...")
+                        break
+                    except Exception as e:
+                        print(f"Error: {e}")
+                        time.sleep(1)
+        except Exception as e:
+             print(f"Audio error: {e}")
+             print("Check microphone settings")
     
     # Stop the system tray icon
     if tray_icon:
