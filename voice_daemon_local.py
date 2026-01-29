@@ -259,23 +259,40 @@ def main():
                         
                         if transcription:
                             prompt = normalize_prompt(transcription)
+                            print(f"Transcribed: {transcription}")
                             if prompt:
+                                # Try to copy to clipboard
+                                clipboard_ok = False
                                 try:
                                     prompt_with_space = prompt + " "
                                     pyperclip.copy(prompt_with_space)
-                                    print(f"Transcribed: {transcription}")
-                                    
-                                    time.sleep(0.1)
-                                    simulate_ctrl_v()
-                                        
+                                    clipboard_ok = True
                                 except Exception as e:
+                                    print(f"pyperclip failed: {e}")
+                                    # Try wl-copy for Wayland
                                     try:
                                         subprocess.run(["wl-copy"], input=(prompt + " ").encode("utf-8"), check=True)
-                                        print(f"Transcribed: {transcription}")
-                                        time.sleep(0.1)
-                                        simulate_ctrl_v()
+                                        clipboard_ok = True
+                                    except FileNotFoundError:
+                                        print("wl-copy not found. Install: sudo apt install wl-clipboard")
                                     except Exception as e2:
-                                        print("Paste failed")
+                                        print(f"wl-copy failed: {e2}")
+                                        # Try xclip for X11
+                                        try:
+                                            subprocess.run(["xclip", "-selection", "clipboard"], 
+                                                         input=(prompt + " ").encode("utf-8"), check=True)
+                                            clipboard_ok = True
+                                        except FileNotFoundError:
+                                            print("xclip not found. Install: sudo apt install xclip")
+                                        except Exception as e3:
+                                            print(f"xclip failed: {e3}")
+                                
+                                if clipboard_ok:
+                                    time.sleep(0.1)
+                                    simulate_ctrl_v()
+                                else:
+                                    print("ERROR: No working clipboard tool found!")
+                                    print("Install one of: wl-clipboard (Wayland) or xclip (X11)")
                             
                     time.sleep(0.01)
                     

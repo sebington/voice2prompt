@@ -18,6 +18,9 @@ A voice-to-text app that lets you dictate text anywhere by holding down Right Ct
 - [uv](https://github.com/astral-sh/uv) (Python package manager)
 - Linux with audio input device (only tested on Ubuntu 25.10 so far)
 - sudo access (for keyboard listener)
+- Clipboard tool:
+  - **X11**: `xclip` or `xsel` (`sudo apt install xclip`)
+  - **Wayland**: `wl-clipboard` (`sudo apt install wl-clipboard`)
 
 ## Installation
 
@@ -85,13 +88,17 @@ Note: The startup script requests sudo access upfront for a clean password promp
 
 **No audio recording**: Check your microphone permissions and default input device.
 
-**Paste not working**: Ensure key_listener.py is running with sudo. The startup script handles this automatically.
+**Paste not working**: 
+- First check if transcription is shown in terminal (if yes, clipboard is the issue)
+- Install clipboard tools: `sudo apt install xclip` (X11) or `sudo apt install wl-clipboard` (Wayland)
+- Ensure key_listener.py is running with sudo (the startup script handles this automatically)
+- The error messages will tell you which clipboard tool is missing
 
 **Ctrl+C not stopping**: This has been fixed - the script now properly traps signals and cleanly shuts down both processes.
 
 **Model download fails**: Check your internet connection. The Whisper tiny.en model (~75MB) downloads on first run.
 
-**Wayland clipboard issues**: The system falls back to wl-copy if pyperclip doesn't work.
+**Clipboard issues**: The system tries multiple clipboard backends in order (pyperclip → wl-copy → xclip). Error messages will indicate which tool needs to be installed.
 
 **Slow transcription**: The system now uses the tiny.en model and memory optimization for fast processing (~0.5-0.8s). 
 
