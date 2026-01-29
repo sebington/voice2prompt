@@ -26,13 +26,14 @@ import sys
 import tempfile
 import threading
 import time
+import io
+import wave
 from pathlib import Path
 from pywhispercpp.model import Model
 import pystray
 import pyperclip
 import sounddevice as sd
 import numpy as np
-from scipy.io.wavfile import write as write_wav
 from PIL import Image, ImageDraw
 
 # Configuration
@@ -127,32 +128,57 @@ def normalize_prompt(text):
     """Format text as a prompt"""
     return text.strip()
 
-def transcribe_audio(audio_file):
-    """Transcribe audio using pywhispercpp"""
+def numpy_to_wav_bytes(audio_data, sample_rate):
+    """Convert numpy array to WAV format in memory"""
+    byte_io = io.BytesIO()
+    with wave.open(byte_io, 'wb') as wav_file:
+        wav_file.setnchannels(CHANNELS)
+        wav_file.setsampwidth(2)  # 16-bit
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(audio_data.tobytes())
+    byte_io.seek(0)
+    return byte_io
+
+def transcribe_audio(audio_data, sample_rate):
+    """Transcribe audio using pywhispercpp (in-memory)"""
     try:
-        # Check if file exists and has content
-        if not os.path.exists(audio_file):
+        # Check if audio data is sufficient
+        if len(audio_data) < RATE // 10:  # Less than 0.1 seconds
             return None
         
-        file_size = os.path.getsize(audio_file)
-        if file_size < 1000:  # Less than 1KB is probably empty
-            return None
+        # Create temporary file for pywhispercpp (it requires a file path)
+        # But we'll use a fast in-memory approach with a minimal temp file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+            # Write WAV header and data
+            with wave.open(tmp_file, 'wb') as wav_file:
+                wav_file.setnchannels(CHANNELS)
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(audio_data.tobytes())
         
-        # Use pywhispercpp to transcribe
-        segments = whisper_model.transcribe(str(audio_file))
-        
-        # Extract text from all segments
-        if segments and len(segments) > 0:
-            transcription_parts = []
-            for segment in segments:
-                if hasattr(segment, 'text') and segment.text.strip():
-                    transcription_parts.append(segment.text.strip())
+        try:
+            # Use pywhispercpp to transcribe
+            segments = whisper_model.transcribe(tmp_path)
             
-            transcription = ' '.join(transcription_parts) if transcription_parts else None
-            
-            return transcription
-        else:
-            return None
+            # Extract text from all segments
+            if segments and len(segments) > 0:
+                transcription_parts = []
+                for segment in segments:
+                    if hasattr(segment, 'text') and segment.text.strip():
+                        transcription_parts.append(segment.text.strip())
+                
+                transcription = ' '.join(transcription_parts) if transcription_parts else None
+                
+                return transcription
+            else:
+                return None
+        finally:
+            # Clean up temp file immediately
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
             
     except Exception as e:
         print(f"Error during transcription: {e}")
@@ -201,73 +227,67 @@ def main():
     print("Voice Prompt Daemon Ready")
     print("   Hold Right Ctrl to record, release to transcribe & paste")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        recording_file = os.path.join(tmpdir, "recording.wav")
-        
-        # Open audio stream
-        # Try to use default device, blocksize=1024 for stability
-        try:
-            with sd.InputStream(samplerate=RATE, channels=CHANNELS, dtype='int16', 
-                                blocksize=1024, callback=audio_callback):
-                print("Audio ready")
-                
-                while True:
-                    try:
-                        # Check for UDP commands
-                        ready = select.select([sock], [], [], 0.05)
-                        if ready[0]:
-                            data, addr = sock.recvfrom(1024)
-                            cmd = data.decode().strip()
-                            if cmd == "START":
-                                on_start_command()
-                            elif cmd == "STOP":
-                                on_stop_command()
+    # Open audio stream
+    # Try to use default device, blocksize=1024 for stability
+    try:
+        with sd.InputStream(samplerate=RATE, channels=CHANNELS, dtype='int16', 
+                            blocksize=1024, callback=audio_callback):
+            print("Audio ready")
+            
+            while True:
+                try:
+                    # Check for UDP commands
+                    ready = select.select([sock], [], [], 0.05)
+                    if ready[0]:
+                        data, addr = sock.recvfrom(1024)
+                        cmd = data.decode().strip()
+                        if cmd == "START":
+                            on_start_command()
+                        elif cmd == "STOP":
+                            on_stop_command()
 
-                        # Process recording if stopped
-                        if not listening and len(recording_data) > 0:
-                            # Concatenate all recorded chunks
-                            my_recording = np.concatenate(recording_data, axis=0)
-                            
-                            # Save to WAV file
-                            write_wav(recording_file, RATE, my_recording)
-                            
-                            # Reset buffer
-                            recording_data = []
-                            
-                            # Transcribe
-                            transcription = transcribe_audio(recording_file)
-                            
-                            if transcription:
-                                prompt = normalize_prompt(transcription)
-                                if prompt:
-                                    try:
-                                        prompt_with_space = prompt + " "
-                                        pyperclip.copy(prompt_with_space)
-                                        print(f"Transcribed: {transcription}")
+                    # Process recording if stopped
+                    if not listening and len(recording_data) > 0:
+                        # Concatenate all recorded chunks
+                        my_recording = np.concatenate(recording_data, axis=0)
+                        
+                        # Reset buffer
+                        recording_data = []
+                        
+                        # Transcribe directly from memory (no file I/O)
+                        transcription = transcribe_audio(my_recording, RATE)
+                        
+                        if transcription:
+                            prompt = normalize_prompt(transcription)
+                            if prompt:
+                                try:
+                                    prompt_with_space = prompt + " "
+                                    pyperclip.copy(prompt_with_space)
+                                    print(f"Transcribed: {transcription}")
+                                    
+                                    time.sleep(0.1)
+                                    simulate_ctrl_v()
                                         
+                                except Exception as e:
+                                    try:
+                                        subprocess.run(["wl-copy"], input=(prompt + " ").encode("utf-8"), check=True)
+                                        print(f"Transcribed: {transcription}")
                                         time.sleep(0.1)
                                         simulate_ctrl_v()
-                                            
-                                    except Exception as e:
-                                        try:
-                                            subprocess.run(["wl-copy"], input=(prompt + " ").encode("utf-8"), check=True)
-                                            print(f"Transcribed: {transcription}")
-                                            time.sleep(0.1)
-                                            simulate_ctrl_v()
-                                        except Exception as e2:
-                                            print("Paste failed")
-                                
-                        time.sleep(0.01)
-                        
-                    except KeyboardInterrupt:
-                        print("\nShutting down...")
-                        break
-                    except Exception as e:
-                        print(f"Error: {e}")
-                        time.sleep(1)
-        except Exception as e:
-             print(f"Audio error: {e}")
-             print("Check microphone settings")
+                                    except Exception as e2:
+                                        print("Paste failed")
+                            
+                    time.sleep(0.01)
+                    
+                except KeyboardInterrupt:
+                    print("\nShutting down...")
+                    break
+                except Exception as e:
+                    print(f"Error: {e}")
+                    time.sleep(1)
+    except Exception as e:
+         print(f"Audio error: {e}")
+         print("Check microphone settings")
     
     # Stop the system tray icon
     if tray_icon:
