@@ -44,8 +44,8 @@ RATE = 16000  # whisper works best with 16kHz
 FORMAT = "S16_LE"  # 16-bit little endian
 ARECORD_CMD = ["arecord"]
 WHISPER_PATH = Path(__file__).parent / "whisper.cpp"
-WHISPER_MODEL_NAME = "base.en"  # Model name for auto-download
-WHISPER_MODEL = WHISPER_PATH / "models" / "ggml-base.en.bin"  # Fallback local path
+WHISPER_MODEL_NAME = "tiny.en"  # Model name for auto-download
+WHISPER_MODEL = WHISPER_PATH / "models" / "ggml-tiny.en.bin"  # Fallback local path
 
 audio_q = queue.Queue()
 listening = False
