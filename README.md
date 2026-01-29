@@ -1,4 +1,4 @@
-# Voice2Prompt
+# voice2prompt
 
 A voice-to-text app that lets you dictate text anywhere by holding down Right Ctrl. Audio is transcribed using Whisper and automatically pasted into your active application.
 
@@ -16,7 +16,7 @@ A voice-to-text app that lets you dictate text anywhere by holding down Right Ct
 
 - Python 3.8+
 - [uv](https://github.com/astral-sh/uv) (Python package manager)
-- Linux with audio input device (only tested on Ubuntu 25.10 so far)
+- Linux with audio input device (tested on Ubuntu (Wayland) and Endeavour (X11))
 - sudo access (for keyboard listener)
 - Clipboard tool:
   - **X11**: `xclip` or `xsel` (`sudo apt install xclip`)
