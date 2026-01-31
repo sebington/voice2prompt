@@ -23,7 +23,7 @@ cleanup() {
         kill $USER_PID 2>/dev/null
     fi
     if [ -n "$ROOT_PID" ]; then
-        sudo kill $ROOT_PID 2>/dev/null
+        kill $ROOT_PID 2>/dev/null
     fi
     exit 0
 }
