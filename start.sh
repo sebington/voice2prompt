@@ -15,6 +15,30 @@ if [ -z "$UV_PATH" ]; then
     fi
 fi
 
+# Prompt for language selection
+echo ""
+echo "Select language:"
+echo "  1) English (tiny.en model)"
+echo "  2) French (tiny model)"
+echo ""
+read -p "Enter choice [1-2] (default: 2): " LANG_CHOICE
+
+# Set language based on choice
+case "$LANG_CHOICE" in
+    1)
+        LANGUAGE="en"
+        echo "Selected: English"
+        ;;
+    2|"")
+        LANGUAGE="fr"
+        echo "Selected: French"
+        ;;
+    *)
+        echo "Invalid choice. Using French (default)"
+        LANGUAGE="fr"
+        ;;
+esac
+
 # Cleanup function
 cleanup() {
     echo ""
@@ -39,9 +63,9 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 1. Start the User Component (Audio/UI) in background
+# 1. Start the User Component (Audio/UI) in background with language parameter
 echo "Starting Audio Service (User Mode)..."
-$UV_PATH run voice_daemon_local.py &
+$UV_PATH run voice_daemon_local.py --language $LANGUAGE &
 USER_PID=$!
 
 # Wait for it to initialize

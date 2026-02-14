@@ -5,9 +5,10 @@ A voice-to-text app that lets you dictate text anywhere by holding down Right Ct
 ## Features
 
 - **Push-to-talk**: Hold Right Ctrl to record, release to transcribe and paste
+- **Multi-language**: Choose between English (tiny.en) or French (tiny) models at startup
 - **System-wide**: Works in any application
 - **Local processing**: Uses Whisper.cpp for fast, private transcription
-- **Fast transcription**: ~0.5-0.8 seconds with optimized tiny.en model
+- **Fast transcription**: ~0.5-0.8 seconds with optimized tiny models
 - **Visual feedback**: System tray icon (green=ready, red=recording)
 - **Automatic model setup**: Downloads Whisper model on first run
 - **Memory optimized**: Direct audio processing without disk I/O overhead
@@ -42,11 +43,15 @@ chmod +x start.sh
 
 ## Usage
 
-Run the following script in a terminal:
+Run the start script in a terminal:
 
 ```bash
 ./start.sh
 ```
+
+You'll be prompted to select a language:
+- **Option 1**: English (uses tiny.en model for English-only, faster and more accurate)
+- **Option 2**: French (uses tiny model for French, default choice)
 
 Once running:
 1. **Hold Right Ctrl** to start recording (tray icon turns red)
@@ -55,6 +60,20 @@ Once running:
 4. Text is automatically transcribed and pasted
 
 To stop, press Ctrl+C
+
+### Manual Language Selection
+
+You can also run the daemon directly with language argument:
+
+```bash
+# For English
+uv run voice_daemon_local.py --language en
+
+# For French
+uv run voice_daemon_local.py --language fr
+```
+
+Note: When running manually, you'll need to start the key listener separately with sudo.
 
 ## How It Works
 
@@ -67,7 +86,9 @@ The processes communicate via UDP on localhost for security and isolation.
 
 ### Performance Optimizations
 
-- **Tiny.en model**: Uses Whisper's smallest English model for 3-4x faster transcription
+- **Language-specific models**: 
+  - English: `tiny.en` model optimized for English-only transcription
+  - French: `tiny` multilingual model supporting French
 - **In-memory processing**: Audio data is processed directly without writing to disk
 - **Efficient cleanup**: Temporary files are immediately deleted after use
 - **Result**: Typical transcription completes in 0.5-0.8 seconds
@@ -77,7 +98,7 @@ The processes communicate via UDP on localhost for security and isolation.
 All dependencies are managed via inline PEP 723 specifications and installed automatically by `uv run`:
 
 - Audio: sounddevice, numpy
-- Transcription: pywhispercpp (with tiny.en model)
+- Transcription: pywhispercpp (with tiny.en or tiny models)
 - UI: pystray, pillow
 - Clipboard: pyperclip
 - Keyboard: keyboard
@@ -96,20 +117,27 @@ Note: The startup script requests sudo access upfront for a clean password promp
 
 **Ctrl+C not stopping**: This has been fixed - the script now properly traps signals and cleanly shuts down both processes.
 
-**Model download fails**: Check your internet connection. The Whisper tiny.en model (~75MB) downloads on first run.
+**Model download fails**: Check your internet connection. The Whisper models download on first run:
+- English: tiny.en (~75MB)
+- French: tiny (~75MB)
 
 **Clipboard issues**: The system tries multiple clipboard backends in order (pyperclip → wl-copy → xclip). Error messages will indicate which tool needs to be installed.
 
-**Slow transcription**: The system now uses the tiny.en model and memory optimization for fast processing (~0.5-0.8s). 
+**Slow transcription**: The system uses optimized tiny models and memory optimization for fast processing (~0.5-0.8s). 
 
-**Accuracy**: If you need higher accuracy, you can manually change `WHISPER_MODEL_NAME` to `base.en` in voice_daemon_local.py.
+**Accuracy**: For higher accuracy, you can modify the `LANGUAGE_CONFIG` in voice_daemon_local.py to use `base.en` or `base` models instead of tiny variants (will be slower).
 
 ## Recent Improvements
 
+### v1.2 - Multi-language Support
+- **Language selection**: Choose between English or French at startup
+- **Optimized models**: English uses tiny.en, French uses tiny multilingual
+- **Interactive menu**: User-friendly language selection prompt
+- **Removed scipy**: Cleaned up unused dependency
+
 ### v1.1 - Performance & Stability Updates
-- **4x faster transcription**: Switched to tiny.en model (0.5-0.8s vs 2s)
+- **4x faster transcription**: Switched to tiny models (0.5-0.8s vs 2s)
 - **Memory optimization**: Eliminated disk I/O by processing audio directly in memory
 - **Fixed startup**: Sudo password prompt now works correctly
 - **Fixed shutdown**: Ctrl+C now properly terminates both processes
 - **Better signal handling**: Clean process cleanup on exit
-- **Removed scipy dependency**: Lighter installation footprint

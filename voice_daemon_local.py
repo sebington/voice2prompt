@@ -8,7 +8,6 @@
 #     "pillow",
 #     "pyperclip",
 #     "sounddevice",
-#     "scipy",
 # ]
 # ///
 
@@ -28,6 +27,7 @@ import threading
 import time
 import io
 import wave
+import argparse
 from pathlib import Path
 from pywhispercpp.model import Model
 import pystray
@@ -45,8 +45,25 @@ RATE = 16000  # whisper works best with 16kHz
 FORMAT = "S16_LE"  # 16-bit little endian
 ARECORD_CMD = ["arecord"]
 WHISPER_PATH = Path(__file__).parent / "whisper.cpp"
-WHISPER_MODEL_NAME = "tiny.en"  # Model name for auto-download
-WHISPER_MODEL = WHISPER_PATH / "models" / "ggml-tiny.en.bin"  # Fallback local path
+
+# Language-to-model mapping
+LANGUAGE_CONFIG = {
+    'en': {
+        'model_name': 'tiny.en',
+        'model_file': 'ggml-tiny.en.bin',
+        'whisper_lang': 'en'
+    },
+    'fr': {
+        'model_name': 'tiny',
+        'model_file': 'ggml-tiny.bin',
+        'whisper_lang': 'fr'
+    }
+}
+
+# These will be set based on command-line argument
+WHISPER_MODEL_NAME = None
+WHISPER_MODEL = None
+WHISPER_LANGUAGE = None
 
 audio_q = queue.Queue()
 listening = False
@@ -159,7 +176,7 @@ def transcribe_audio(audio_data, sample_rate):
         
         try:
             # Use pywhispercpp to transcribe
-            segments = whisper_model.transcribe(tmp_path)
+            segments = whisper_model.transcribe(tmp_path, language=WHISPER_LANGUAGE)
             
             # Extract text from all segments
             if segments and len(segments) > 0:
@@ -186,6 +203,23 @@ def transcribe_audio(audio_data, sample_rate):
 
 def main():
     global listening, recording_data, whisper_model, icon_thread
+    global WHISPER_MODEL_NAME, WHISPER_MODEL, WHISPER_LANGUAGE
+    
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Voice to Prompt Daemon')
+    parser.add_argument('--language', '-l', 
+                        choices=['en', 'fr'],
+                        default='fr',
+                        help='Language for transcription (en=English/tiny.en, fr=French/tiny)')
+    args = parser.parse_args()
+    
+    # Configure model based on language
+    lang_config = LANGUAGE_CONFIG[args.language]
+    WHISPER_MODEL_NAME = lang_config['model_name']
+    WHISPER_MODEL = WHISPER_PATH / "models" / lang_config['model_file']
+    WHISPER_LANGUAGE = lang_config['whisper_lang']
+    
+    print(f"Language: {args.language.upper()} | Model: {WHISPER_MODEL_NAME}")
     
     # Check if running as root - WE SHOULD NOT BE ROOT
     if os.geteuid() == 0:
